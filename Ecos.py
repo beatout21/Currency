@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("📊 글로벌 경제지표 & 환율 경영 대시보드")
-st.caption("최종 무결점 마감 (V17) | 한국은행 경제통계시스템(ECOS) API 결측치 완전 차단 파이프라인")
+st.caption("최종 문결점 마감 (V18) | ECOS API 호출 범위 확장 및 판다스 문법 오류 완전 수정")
 
 # 제공해주신 한은 공식 API 인증키 자동 바인딩
 ECOS_API_KEY = "ZXBH7LM5BB9NFLDW0DEA"
@@ -48,10 +48,10 @@ INDICATORS = {
 def fetch_ecos_series(stat_code, item_code):
     """한국은행 통계조회 API 서버에 접근하여 시계열 데이터를 파싱하는 함수"""
     today_str = datetime.date.today().strftime("%Y%m%d")
-    # [오류 해결 1] 데이터 부재를 막기 위해 올해 1월 1일부터 데이터를 넉넉하게 호출
     start_str = f"{datetime.date.today().year}0101"
     
-    url = f"http://bok.or.kr{ECOS_API_KEY}/json/kr/1/100/{stat_code}/D/{start_str}/{today_str}/{item_code}/"
+    # [수정 포인트 1] 데이터 누락을 막기 위해 호출 개수 제한을 100건에서 500건으로 대폭 확장 (/1/500/)
+    url = f"http://bok.or.kr{ECOS_API_KEY}/json/kr/1/500/{stat_code}/D/{start_str}/{today_str}/{item_code}/"
     
     try:
         response = requests.get(url, timeout=10)
@@ -71,7 +71,7 @@ def fetch_ecos_series(stat_code, item_code):
 
 @st.cache_data(ttl=1800)
 def load_all_ecos_data():
-    """모든 ECOS 지표를 하나의 공통 날짜 프레임에 하드코딩 없이 조인하는 통합 마스터 함수"""
+    """모든 ECOS 지표를 하나의 공통 날짜 프레임에 조인하는 통합 마스터 함수"""
     all_columns = []
     
     for cat_name, cat_info in INDICATORS.items():
@@ -79,31 +79,33 @@ def load_all_ecos_data():
         for display_name, item_code in cat_info["tickers"].items():
             series = fetch_ecos_series(stat_code, item_code)
             
-            # 데이터가 비어있더라도 구조가 터지지 않게 빈 시리즈에 이름만 명시해서 결합 리스트에 적재
-            series.name = (cat_name, display_name)
-            all_columns.append(series)
+            # 비어있지 않은 데이터만 이름(멀티인덱스 튜플)을 달아서 적재
+            if not series.empty:
+                series.name = (cat_name, display_name)
+                all_columns.append(series)
             
-    # [오류 해결 2] 모든 API가 통신 차단되었을 때를 대비한 마스터 날짜 가상 마운트
-    if not all_columns or all(s.empty for s in all_columns):
-        # 만약 전부 비어있다면 가상의 평일 날짜 11일을 강제 생성하여 화면 크래시를 완벽 차단
-        fake_idx = pd.date_range(end=datetime.date.today(), periods=11, freq='B')
-        empty_df = pd.DataFrame(index=fake_idx)
-        empty_df.columns = pd.MultiIndex.from_tuples([("원화환율(매매기준율)", "달러 환율")])
-        return empty_df.tail(10), empty_df.tail(10)
+    # [수정 포인트 2 - ValueError 진화] 데이터가 아예 안 잡혔을 때 발생하던 판다스 컬럼 불일치 문법 완벽 수정
+    if not all_columns:
+        fake_idx = pd.date_range(end=datetime.date.today(), periods=10, freq='B')
+        columns = pd.MultiIndex.from_tuples([("원화환율(매매기준율)", "달러 환율")])
+        # 가상의 빈 데이터프레임을 정확한 형상(10행, 1열)으로 맞추어 생성하여 크래시 방지
+        empty_df = pd.DataFrame(index=fake_idx, columns=columns)
+        empty_df.index = empty_df.index.strftime("%Y-%m-%d")
+        return empty_df, empty_df
         
     # 가로형 데이터 매트릭스로 결합 (NaN 값 완전 수용)
     total_df = pd.concat(all_columns, axis=1)
     total_df.columns = pd.MultiIndex.from_tuples(total_df.columns)
     
-    # 완전히 데이터가 없는 공휴일/주말 행만 삭제 후 평일 축 유지
+    # 완전히 데이터가 없는 주말 행만 지우고 정렬
     total_df = total_df.dropna(how="all").sort_index(ascending=True)
     
-    # 최근 '10영업일' 데이터 구조 표출 및 전일비 연산용 11행 분리
+    # 최근 10영업일 슬라이싱 및 전일 대비 변화량 계산을 위한 11행 분리
     full_slice = total_df.tail(11).copy()
     diff_matrix = full_slice.diff().tail(10)
     display_matrix = full_slice.tail(10).copy()
     
-    # 날짜 인덱스를 깔끔한 문자열로 가공 보정
+    # 날짜 인덱스를 최종 문자열로 안전하게 가공
     try:
         display_matrix.index = pd.to_datetime(display_matrix.index).strftime("%Y-%m-%d")
         diff_matrix.index = pd.to_datetime(diff_matrix.index).strftime("%Y-%m-%d")
@@ -156,7 +158,7 @@ def highlight_changes(df_data, df_diff):
                 pass
     return style
 
-# 가변 소수점 포맷팅 마감
+# 가변 소수점 포맷팅 마감 (NaN 값은 에러 없이 투명하게 공백 처리)
 styled_df = (
     data.style
     .apply(lambda x: highlight_changes(data, diff_data), axis=None)
@@ -164,7 +166,7 @@ styled_df = (
 )
 
 st.dataframe(styled_df, use_container_width=True, height=500)
-st.info("💡 **가이드**: 한국은행 고시 규칙에 맞춰 당일 데이터가 수집되지 않은 칸은 가공 없이 정직한 공백으로 노출됩니다.")
+st.info("💡 **가이드**: 한국은행 고시 규칙에 맞춰 데이터가 수집되지 않은 칸은 가공 없이 정직한 공백으로 노출됩니다.")
 
 # =========================================================
 # 7. 인터랙티브 추세 차트 컴포넌트
