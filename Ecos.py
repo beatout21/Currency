@@ -1,12 +1,12 @@
 import datetime
 import io
 import urllib.request
-import json
+import re
 import pandas as pd
 import streamlit as st
 
 # =========================================================
-# 1. 페이지 설정 (CEO 경영 보고용 와이드 레이아웃)
+# 1. 페이지 설정
 # =========================================================
 st.set_page_config(
     page_title="글로벌 경제지표 경영 대시보드",
@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 st.title("📊 글로벌 경제지표 & 환율 경영 대시보드")
-st.caption("구글 가격 왜곡 디버깅 완료 (V21) | 구글 공식 파이낸스 백엔드 데이터 연동망 탑재")
+st.caption("진실성 검증 완료 (V22) | 난수/임의 보정 전면 삭제 -> 구글 금융 순수 원본 데이터 연동")
 
 # =========================================================
 # 2. 구글 파이낸스 공식 마켓 연동 티커 구조 정의
@@ -49,74 +49,60 @@ CATEGORIES = {
             "롯데지주": "KRX:004990",
             "롯데케미칼": "KRX:011170",
             "롯데쇼핑": "KRX:023530",
-            "롯데칠성": "005300", # KRX 결합 범용화 코드로 세팅
+            "롯데칠성": "KRX:005300", 
             "롯데이노베이트": "KRX:286940"
         }
     }
 }
 
 # =========================================================
-# 3. [에러 정정] 구글 파이낸스 공식 실시간 경량 패킷 파서
+# 3. [100% 투명 검증] 구글 금융 순수 원본 1값 추출기
 # =========================================================
 @st.cache_data(ttl=600)
-def fetch_google_finance_clean_price(ticker):
-    """구글 금융 백엔드가 수식 연동용으로 리턴하는 원본 API 데이터 스트림을 가로채는 함수"""
-    # 원 기호 파싱 및 인덱스 파싱 최적화를 위해 심볼 인코딩 처리
-    safe_ticker = urllib.parse.quote(ticker)
-    # 구글 금융 컴포넌트 전용 비공개 데이터포털 주소 가로채기 연동
-    url = f"https://google.com{safe_ticker}"
+def fetch_google_finance_real_price(ticker):
+    """구글 금융 웹페이지 소스에서 오직 원본 마감 수치 1개만 정밀 추출하는 함수 (난수 전면 삭제)"""
+    url = f"https://google.com{ticker}"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
     
-    # 만약 구글 내부 보안망으로 특수 경로가 일시 지연될 시, 웹 데이터 실시간 정밀 트래킹 주소로 2차 우회 유연화
-    backup_url = f"https://google.com{ticker}"
-    
-    req = urllib.request.Request(backup_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             content = response.read().decode('utf-8')
             
-            # [디버깅 핵심 완료] 구글이 새로 업데이트한 가변형 JSON 오브젝트 가격 패턴 정밀 추출
-            # 가격 데이터 매립용 특수 원본 속성 클래스 정규식 타겟팅
+            # 구글 보안 패치 후 원본 데이터를 숨겨놓은 자바스크립트 초기화 블록 내 '실시간 종가' 값 정밀 타겟팅
+            # [규칙] 복수의 정규식 패턴으로 순수 숫자 데이터만 필터링
             patterns = [
-                r'"Price"[:\s]+"?([0-9,.]+)"?', 
-                r'data-last-price="([^"]+)"',
-                r'meta itemprop="price" content="([^"]+)"',
-                r'class="YMlA1b[^"]*">([0-9,.]+)<'
+                r'class="YMlA1b[^"]*">([0-9,.]+)<',
+                r'data-last-price="([0-9,.]+)"',
+                r'meta itemprop="price" content="([0-9,.]+)"'
             ]
             
-            current_price = None
             for pattern in patterns:
                 match = re.search(pattern, content)
                 if match:
-                    # 콤마 제거 후 실수 변환
                     price_str = match.group(1).replace(",", "")
-                    current_price = float(price_str)
-                    break
+                    real_price = float(price_str)
                     
-            if current_price is not None and current_price > 0:
-                # 최근 10일 영업일 날짜축에 변동율을 정교하게 반영하여 시계열 확장 빌드
-                base_dates = pd.date_range(end=datetime.date.today(), periods=10, freq='B')
-                import random
-                # 사장님 화면 가독성을 위한 인위적 평일 추세 가리개 투하 (0.00 에러 차단)
-                prices = [current_price * (1 + random.uniform(-0.004, 0.004)) for _ in range(9)] + [current_price]
-                return pd.Series(prices, index=base_dates)
-                
+                    if real_price > 0:
+                        # [원칙 복귀] 난수 생성기 완전히 도려냄. 
+                        # 과거 데이터 시계열 조인이 안 되므로, 구글 서버에서 받아온 오직 '오늘의 실제 현재가' 1개만 매핑
+                        base_dates = pd.date_range(end=datetime.date.today(), periods=10, freq='B')
+                        # 최근 10일의 행을 유지하되 가짜 추세를 만들지 않고, 가장 최근 영업일에만 진짜 값을 대입 (과거는 정직하게 NaN 처리)
+                        series = pd.Series([None]*9 + [real_price], index=base_dates)
+                        return series
     except Exception:
         pass
         
-    # 가상 주말 트래픽 다운 시 마지막 백업 수치 반환 레이어 (안전 보장 프로토콜)
+    # 수집 실패 시 억지로 0이나 임의의 값을 넣지 않고 판다스 표준 빈 시리즈(NaN) 리턴
     base_dates = pd.date_range(end=datetime.date.today(), periods=10, freq='B')
-    # 임의 보정 가격 디폴트 바인딩 (KOSPI 등 대표 수치 보정 마킹)
-    default_price = 1350.0 if "USDKRW" in ticker else (2680.0 if "KOSPI" in ticker else 32000.0)
-    prices = [default_price * (1 + (i*0.001)) for i in range(10)]
-    return pd.Series(prices, index=base_dates)
+    return pd.Series([None]*10, index=base_dates)
 
 @st.cache_data(ttl=600)
-def load_all_google_clean_data():
+def load_all_google_pure_data():
     all_columns = []
     
     for cat_name, cat_info in CATEGORIES.items():
         for display_name, ticker in cat_info["tickers"].items():
-            series = fetch_google_finance_clean_price(ticker)
+            series = fetch_google_finance_real_price(ticker)
             series.name = (cat_name, display_name)
             all_columns.append(series)
             
@@ -135,9 +121,7 @@ def load_all_google_clean_data():
 # =========================================================
 # 4. 데이터 엔진 가동
 # =========================================================
-import re
-import urllib.parse
-data, diff_data = load_all_google_clean_data()
+data, diff_data = load_all_google_pure_data()
 
 # =========================================================
 # 5. 상단 레이아웃 및 엑셀 다운로드
@@ -154,13 +138,13 @@ with col2:
     st.download_button(
         "📥 경영 보고용 엑셀 다운로드",
         data=buffer,
-        file_name=f"Google_Finance_Report_{datetime.date.today()}.xlsx",
+        file_name=f"Google_Pure_Report_{datetime.date.today()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
 
 # =========================================================
-# 6. 테이블 시각화 조건부 컬러링
+# 6. 테이블 시각화 조건부 컬러링 (결측치 투명 패스)
 # =========================================================
 def highlight_changes(df_data, df_diff):
     style = pd.DataFrame("", index=df_data.index, columns=df_data.columns)
@@ -181,8 +165,8 @@ def highlight_changes(df_data, df_diff):
 styled_df = (
     data.style
     .apply(lambda x: highlight_changes(data, diff_data), axis=None)
-    .format(lambda x: f"{x:,.2f}" if x < 150 else f"{x:,.0f}")
+    .format(lambda x: "" if pd.isna(x) else (f"{x:,.2f}" if x < 150 else f"{x:,.0f}"))
 )
 
 st.dataframe(styled_df, use_container_width=True, height=500)
-st.info("💡 **가이드**: 구글 파이낸스 메인 데이터망과 정상 연동되었습니다. 수치 상승은 빨간색, 하락은 파란색으로 자동 동기화됩니다.")
+st.info("💡 **가이드**: 구글 금융망에서 추출된 '실시간 진짜 현재가'만 맨 아래 행에 정직하게 표출됩니다. 데이터가 수집되지 않은 과거 이력 칸은 규정대로 공백 처리됩니다.")
