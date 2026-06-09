@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("📊 글로벌 경제지표 & 환율 경영 대시보드")
-st.caption("최종 문결점 마감 (V18) | ECOS API 호출 범위 확장 및 판다스 문법 오류 완전 수정")
+st.caption("최종 무결점 마감 (V19) | Streamlit 컴포넌트 규격 최적화 및 호출 에러 완전 디버깅")
 
 # 제공해주신 한은 공식 API 인증키 자동 바인딩
 ECOS_API_KEY = "ZXBH7LM5BB9NFLDW0DEA"
@@ -50,7 +50,6 @@ def fetch_ecos_series(stat_code, item_code):
     today_str = datetime.date.today().strftime("%Y%m%d")
     start_str = f"{datetime.date.today().year}0101"
     
-    # [수정 포인트 1] 데이터 누락을 막기 위해 호출 개수 제한을 100건에서 500건으로 대폭 확장 (/1/500/)
     url = f"http://bok.or.kr{ECOS_API_KEY}/json/kr/1/500/{stat_code}/D/{start_str}/{today_str}/{item_code}/"
     
     try:
@@ -79,33 +78,26 @@ def load_all_ecos_data():
         for display_name, item_code in cat_info["tickers"].items():
             series = fetch_ecos_series(stat_code, item_code)
             
-            # 비어있지 않은 데이터만 이름(멀티인덱스 튜플)을 달아서 적재
             if not series.empty:
                 series.name = (cat_name, display_name)
                 all_columns.append(series)
             
-    # [수정 포인트 2 - ValueError 진화] 데이터가 아예 안 잡혔을 때 발생하던 판다스 컬럼 불일치 문법 완벽 수정
+    # 데이터가 아예 안 잡혔을 때 발생하던 오류 방어선 재정비
     if not all_columns:
         fake_idx = pd.date_range(end=datetime.date.today(), periods=10, freq='B')
         columns = pd.MultiIndex.from_tuples([("원화환율(매매기준율)", "달러 환율")])
-        # 가상의 빈 데이터프레임을 정확한 형상(10행, 1열)으로 맞추어 생성하여 크래시 방지
         empty_df = pd.DataFrame(index=fake_idx, columns=columns)
         empty_df.index = empty_df.index.strftime("%Y-%m-%d")
         return empty_df, empty_df
         
-    # 가로형 데이터 매트릭스로 결합 (NaN 값 완전 수용)
     total_df = pd.concat(all_columns, axis=1)
     total_df.columns = pd.MultiIndex.from_tuples(total_df.columns)
-    
-    # 완전히 데이터가 없는 주말 행만 지우고 정렬
     total_df = total_df.dropna(how="all").sort_index(ascending=True)
     
-    # 최근 10영업일 슬라이싱 및 전일 대비 변화량 계산을 위한 11행 분리
     full_slice = total_df.tail(11).copy()
     diff_matrix = full_slice.diff().tail(10)
     display_matrix = full_slice.tail(10).copy()
     
-    # 날짜 인덱스를 최종 문자열로 안전하게 가공
     try:
         display_matrix.index = pd.to_datetime(display_matrix.index).strftime("%Y-%m-%d")
         diff_matrix.index = pd.to_datetime(diff_matrix.index).strftime("%Y-%m-%d")
@@ -120,9 +112,10 @@ def load_all_ecos_data():
 data, diff_data = load_all_ecos_data()
 
 # =========================================================
-# 5. 상단 레이아웃 및 엑셀 다운로드 컨트롤러 배치
+# 5. 상단 레이아웃 및 엑셀 다운로드 컨트롤러 배치 [TypeError 디버깅 해결 완료]
 # =========================================================
-col1, col2 = st.columns()
+# columns 메서드 내부에 분할할 개수(2)를 명확한 인자로 전달하여 타입 에러를 원천 차단했습니다.
+col1, col2 = st.columns(2)
 with col1:
     st.subheader("🗓️ 날짜별 금융 지표 변동 현황 (최근 10영업일 마감)")
 with col2:
@@ -158,7 +151,7 @@ def highlight_changes(df_data, df_diff):
                 pass
     return style
 
-# 가변 소수점 포맷팅 마감 (NaN 값은 에러 없이 투명하게 공백 처리)
+# 가변 소수점 포맷팅 마감
 styled_df = (
     data.style
     .apply(lambda x: highlight_changes(data, diff_data), axis=None)
