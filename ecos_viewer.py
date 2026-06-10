@@ -30,21 +30,25 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # 금리 코드 분류 판별
-  if item_code in ["010200000", "010200001", "010300000"]:
+  # [핵심 수정 부분: get_ecos_data 함수 내 주소 빌더]
+if item_code in ["010200000", "010210000", "010300000"]:
     target_stat_code = "817Y002"
-    # 중요: 금리 통계표는 하위 분류가 없으므로 주소 끝에 /? 자리를 명시해야 함
-    suffix = "/?"
-  else:
+    # 시장금리(817Y002)는 하위 분류 자리(/?)를 포함해야 데이터가 정상 반환됨
+    url = (
+      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"{API_KEY}/json/kr/1/1000/"
+      f"{target_stat_code}/D/"
+      f"{start}/{end}/{item_code}/?"
+    )
+else:
+    # 환율(731Y001)은 기존 구조 유지
     target_stat_code = "731Y001"
-    suffix = ""
-
-  url = (
-    f"https://ecos.bok.or.kr/api/StatisticSearch/"
-    f"{API_KEY}/json/kr/1/1000/"
-    f"{target_stat_code}/D/"
-    f"{start}/{end}/{item_code}{suffix}"
-  )
+    url = (
+      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"{API_KEY}/json/kr/1/1000/"
+      f"{target_stat_code}/D/"
+      f"{start}/{end}/{item_code}"
+    )
 
   response = requests.get(url)
 
