@@ -30,19 +30,22 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # [통계표별 주소 체계 분기]
+  # [통계표별 주소 체계 조건 분기]
   if item_code in ["010200000", "010210000", "010300000"]:
+    # 1. 금리 데이터 (개편된 시장금리 통계표 반영)
     target_stat_code = "817Y002"
+    # 중요: 817Y002 통계표는 하위 분류가 없음을 뜻하는 /? 자리를 규격상 반드시 명시해야 합니다.
     url = (
-      f"https://bok.or.kr"
+      f"https://ecos.bok.or.kr/api/StatisticSearch/"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}/?"
     )
   else:
+    # 2. 환율 데이터
     target_stat_code = "731Y001"
     url = (
-      f"https://bok.or.kr"
+      f"https://ecos.bok.or.kr/api/StatisticSearch/"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}"
@@ -94,12 +97,12 @@ def build_table():
 
   merged["DATE"] = pd.to_datetime(merged["DATE"], format="%Y%m%d")
 
-  # 1. 최근 10영업일을 안전하게 잘라내기 위해 우선 내림차순 정렬 후 10개 커트
-  merged = merged.sort_values("DATE", ascending=False)
-  merged = merged.head(10)
+  merged = merged.sort_values(
+    "DATE",
+    ascending=False
+  )
 
-  # 2. [요구사항 반영] 잘라낸 10개 데이터를 다시 과거->최신 순인 '오름차순'으로 뒤집기
-  merged = merged.sort_values("DATE", ascending=True)
+  merged = merged.head(10)
 
   # 날짜 표기 가독성 정리 (YYYY-MM-DD)
   merged["DATE"] = merged["DATE"].dt.strftime("%Y-%m-%d")
@@ -129,7 +132,7 @@ st.set_page_config(
 )
 
 st.title("환율 및 금리 현황")
-st.caption("한국은행 경제통계시스템(ECOS) API 연동 최근 10 영업일 데이터 동향 (오름차순)")
+st.caption("한국은행 경제통계시스템(ECOS) API 연동 최근 10 영업일 데이터 동향")
 
 # 통합 데이터 테이블 생성
 df = build_table()
