@@ -121,20 +121,23 @@ st.set_page_config(
 
 st.title("환율 및 금리 현황")
 
+# 원본 로직으로 통합 테이블 생성
 df = build_table()
 
+# 1. 환율 표 출력 (날짜와 환율 관련 컬럼만 필터링)
+st.subheader("💱 환율 현황")
+exchange_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안"]
 st.dataframe(
-  df,
+  df[exchange_cols],
   use_container_width=True,
   hide_index=True
 )
 
-st.subheader("원/달러 추이")
-
-chart_df = (
-  df[["날짜", "원/달러"]]
-  .sort_values("날짜")
-  .set_index("날짜")
+# 2. 금리 표 출력 (날짜와 금리 관련 컬럼만 필터링)
+st.subheader("📊 금리 현황")
+interest_cols = ["날짜", "국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
+st.dataframe(
+  df[interest_cols],
+  use_container_width=True,
+  hide_index=True
 )
-
-st.line_chart(chart_df)
