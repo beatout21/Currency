@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
-=========================
-설정
-=========================
+
 API_KEY = "ZXBH7LM5BB9NFLDW0DEA"
 한국은행 ECOS 일일환율 통계표
 STAT_CODE = "731Y001"
@@ -57,9 +55,6 @@ df = df.sort_values("날짜", ascending=False)
 df = df.head(10)
 
 return df.sort_values("날짜") 
-=========================
-Streamlit 화면
-=========================
 st.set_page_config(
 page_title="ECOS 환율 조회",
 layout="wide"
