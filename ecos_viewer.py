@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 API_KEY = st.secrets["ECOS_API_KEY"]
 
 # ==========================================
-# 조회할 항목 (국고채 10년의 신규 매핑 코드로 업데이트)
+# 조회할 항목 (원본 코드 기준)
 # ==========================================
 ITEMS = {
   "USD": "0000001",
@@ -17,7 +17,7 @@ ITEMS = {
   "JPY100": "0000002",
   "CNY": "0000053",
   "KTB3Y": "010200000",
-  "KTB10Y": "010200001",     # 817Y002 통계표용 신규 10년 국채 코드로 수정
+  "KTB10Y": "010210000",
   "CORP_AA3Y": "010300000"
 }
 
@@ -30,25 +30,26 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # [핵심 수정 부분: get_ecos_data 함수 내 주소 빌더]
-if item_code in ["010200000", "010210000", "010300000"]:
+  # [금리 통계표 코드 및 주소 구조 조건 분기]
+  if item_code in ["010200000", "010210000", "010300000"]:
     target_stat_code = "817Y002"
-    # 시장금리(817Y002)는 하위 분류 자리(/?)를 포함해야 데이터가 정상 반환됨
+    # 시장금리(817Y002)는 하위 분류가 없음을 나타내는 /? 자리를 명시해야 호출이 정상 처리됩니다.
     url = (
-      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"https://bok.or.kr"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}/?"
     )
-else:
-    # 환율(731Y001)은 기존 구조 유지
+  else:
     target_stat_code = "731Y001"
     url = (
-      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"https://bok.or.kr"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}"
     )
+
+  response = requests.get(url)
 
   if response.status_code != 200:
     return None
@@ -127,10 +128,10 @@ st.set_page_config(
 
 st.title("환율 및 금리 현황")
 
-# 통합 데이터 연산 수행
+# 데이터 병합 테이블 생성
 df = build_table()
 
-# 1. 환율 표 출력 (수정 없음)
+# 1. 환율 표 출력 (원본 구조 그대로 유지)
 st.subheader("💱 환율 현황")
 exchange_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안"]
 st.dataframe(
@@ -139,7 +140,7 @@ st.dataframe(
   hide_index=True
 )
 
-# 2. 금리 표 출력 (안전 장치 포함 구조)
+# 2. 금리 표 출력 (안전 장치가 포함된 동적 컬럼 바인딩 구조)
 st.subheader("📊 금리 현황")
 
 existing_interest_cols = ["날짜"]
