@@ -75,7 +75,7 @@ def build_table():
 
     df = get_ecos_data(code)
 
-    if df is None:
+    if df is None or df.empty:
       continue
 
     df.columns = ["DATE", name]
@@ -89,7 +89,7 @@ def build_table():
         how="outer"
       )
 
-  if merged is None:
+  if merged is None or merged.empty:
     return pd.DataFrame()
 
   merged["DATE"] = pd.to_datetime(merged["DATE"], format="%Y%m%d")
@@ -143,6 +143,7 @@ if not df.empty:
       if col not in df.columns:
           df[col] = "-"
 
+  # 정해진 컬럼 순서대로만 필터링하여 출력
   st.dataframe(
     df[final_cols],
     use_container_width=True,
@@ -150,4 +151,3 @@ if not df.empty:
   )
 else:
   st.error("❌ 데이터를 가져오는 데 실패했습니다. Streamlit Secrets 보관함에 등록된 API 키 설정을 점검해 주세요.")
-
