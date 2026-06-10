@@ -3,84 +3,139 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 
-API_KEY = "ZXBH7LM5BB9NFLDW0DEA"
-한국은행 ECOS 일일환율 통계표
-STAT_CODE = "731Y001"
-환율 항목코드
-ITEM_CODES = {
-"USD": "0000001",   # 원/달러
-"EUR": "0000003",   # 원/유로
-"JPY": "0000002",   # 원/100엔
-"CNY": "0000053"    # 원/위안
-}
-def get_exchange_rate(item_code):
-"""
-ECOS에서 일별 환율 조회
-"""
-end_date = datetime.today()
-start_date = end_date - timedelta(days=30)
-start_str = start_date.strftime("%Y%m%d")
-end_str = end_date.strftime("%Y%m%d")
+# ==========================================
+# ECOS API KEY
+# ==========================================
+API_KEY = st.secrets["ECOS_API_KEY"]
 
-url = (
+# ==========================================
+# 통계표 코드
+# ==========================================
+STAT_CODE = "731Y001"
+
+# ==========================================
+# 조회할 항목
+# ==========================================
+ITEMS = {
+  "USD": "0000001",
+  "EUR": "0000003",
+  "JPY100": "0000002",
+  "CNY": "0000053",
+  "KTB3Y": "010200000",
+  "KTB10Y": "010210000",
+  "CORP_AA3Y": "010300000"
+}
+
+
+def get_ecos_data(item_code):
+
+  end_date = datetime.today()
+  start_date = end_date - timedelta(days=30)
+
+  start = start_date.strftime("%Y%m%d")
+  end = end_date.strftime("%Y%m%d")
+
+  url = (
     f"https://ecos.bok.or.kr/api/StatisticSearch/"
     f"{API_KEY}/json/kr/1/1000/"
     f"{STAT_CODE}/D/"
-    f"{start_str}/{end_str}/{item_code}"
-)
+    f"{start}/{end}/{item_code}"
+  )
 
-response = requests.get(url)
+  response = requests.get(url)
 
-if response.status_code != 200:
-    return pd.DataFrame()
+  if response.status_code != 200:
+    return None
 
-data = response.json()
+  data = response.json()
 
-if "StatisticSearch" not in data:
-    return pd.DataFrame()
+  if "StatisticSearch" not in data:
+    return None
 
-rows = data["StatisticSearch"]["row"]
+  rows = data["StatisticSearch"]["row"]
 
-df = pd.DataFrame(rows)
+  df = pd.DataFrame(rows)
 
-df = df[["TIME", "DATA_VALUE"]]
-df.columns = ["날짜", "환율"]
+  df = df[["TIME", "DATA_VALUE"]]
 
-df["날짜"] = pd.to_datetime(df["날짜"])
-df["환율"] = pd.to_numeric(df["환율"])
+  df.columns = ["DATE", item_code]
 
-df = df.sort_values("날짜", ascending=False)
+  return df
 
-# 최근 10개 영업일
-df = df.head(10)
 
-return df.sort_values("날짜") 
-st.set_page_config(
-page_title="ECOS 환율 조회",
-layout="wide"
-)
-st.title("최근 10영업일 환율 조회")
-st.caption("출처 : 한국은행 ECOS")
-tabs = st.tabs(["달러", "유로", "100엔", "위안"])
-currencies = [
-("USD", tabs[0]),
-("EUR", tabs[1]),
-("JPY", tabs[2]),
-("CNY", tabs[3]),
-]
-for currency, tab in currencies:
-with tab:
-df = get_exchange_rate(ITEM_CODES[currency])
-    if len(df) == 0:
-        st.error("데이터를 가져오지 못했습니다.")
-        continue
+@st.cache_data
+def build_table():
 
-    st.dataframe(
+  merged = None
+
+  for name, code in ITEMS.items():
+
+    df = get_ecos_data(code)
+
+    if df is None:
+      continue
+
+    df.columns = ["DATE", name]
+
+    if merged is None:
+      merged = df
+    else:
+      merged = merged.merge(
         df,
-        use_container_width=True,
-        hide_index=True
-    )
+        on="DATE",
+        how="outer"
+      )
 
-    st.line_chart(
-        data=df.set_index("날짜")["환율"]
-    ) 
+  merged["DATE"] = pd.to_datetime(merged["DATE"])
+
+  merged = merged.sort_values(
+    "DATE",
+    ascending=False
+  )
+
+  merged = merged.head(10)
+
+  merged = merged.rename(
+    columns={
+      "DATE": "날짜",
+      "USD": "원/달러",
+      "EUR": "원/유로",
+      "JPY100": "원/100엔",
+      "CNY": "원/위안",
+      "KTB3Y": "국고채(3년)",
+      "KTB10Y": "국고채(10년)",
+      "CORP_AA3Y": "회사채AA-(3년)"
+    }
+  )
+
+  return merged
+
+
+# ==========================================
+# 화면
+# ==========================================
+st.set_page_config(
+  page_title="경제지표 조회",
+  layout="wide"
+)
+
+st.title("환율 및 금리 현황")
+
+df = build_table()
+
+st.dataframe(
+  df,
+  use_container_width=True,
+  hide_index=True
+)
+
+st.subheader("원/달러 추이")
+
+chart_df = (
+  df[["날짜", "원/달러"]]
+  .sort_values("날짜")
+  .set_index("날짜")
+)
+
+st.line_chart(chart_df)
+
