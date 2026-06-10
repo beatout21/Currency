@@ -30,22 +30,19 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # [통계표별 주소 체계 조건 분기]
+  # [통계표별 주소 체계 분기]
   if item_code in ["010200000", "010210000", "010300000"]:
-    # 1. 금리 데이터 (개편된 시장금리 통계표 반영)
     target_stat_code = "817Y002"
-    # 중요: 817Y002 통계표는 하위 분류가 없음을 뜻하는 /? 자리를 규격상 반드시 명시해야 합니다.
     url = (
-      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"https://bok.or.kr"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}/?"
     )
   else:
-    # 2. 환율 데이터
     target_stat_code = "731Y001"
     url = (
-      f"https://ecos.bok.or.kr/api/StatisticSearch/"
+      f"https://bok.or.kr"
       f"{API_KEY}/json/kr/1/1000/"
       f"{target_stat_code}/D/"
       f"{start}/{end}/{item_code}"
@@ -97,12 +94,12 @@ def build_table():
 
   merged["DATE"] = pd.to_datetime(merged["DATE"], format="%Y%m%d")
 
-  merged = merged.sort_values(
-    "DATE",
-    ascending=False
-  )
-
+  # 최근 10영업일을 추출하기 위해 우선 내림차순 정렬 후 10개 커트
+  merged = merged.sort_values("DATE", ascending=False)
   merged = merged.head(10)
+
+  # [요구사항 반영] 화면 출력 직전 날짜를 과거->현재 순인 '오름차순'으로 재정렬
+  merged = merged.sort_values("DATE", ascending=True)
 
   # 날짜 표기 가독성 정리 (YYYY-MM-DD)
   merged["DATE"] = merged["DATE"].dt.strftime("%Y-%m-%d")
@@ -124,7 +121,7 @@ def build_table():
 
 
 # ==========================================
-# 화면 레이아웃 (환율 표 선배치 / 금리 표 후배치)
+# 화면 레이아웃 (하나의 통합 표 구성)
 # ==========================================
 st.set_page_config(
   page_title="경제지표 조회",
@@ -132,39 +129,25 @@ st.set_page_config(
 )
 
 st.title("환율 및 금리 현황")
-st.caption("한국은행 경제통계시스템(ECOS) API 연동 최근 10 영업일 데이터 동향")
+st.caption("한국은행 경제통계시스템(ECOS) API 연동 최근 10 영업일 데이터 동향 (오름차순)")
 
 # 통합 데이터 테이블 생성
 df = build_table()
 
 if not df.empty:
-  # 1. 💱 환율 표 상단 출력
-  st.subheader("💱 환율 현황")
-  exchange_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안"]
-  st.dataframe(
-    df[exchange_cols],
-    use_container_width=True,
-    hide_index=True
-  )
-
-  # 2. 📊 금리 표 하단 출력
-  st.subheader("📊 금리 현황")
+  # 가로축 순서 정의 (날짜 -> 환율 4종 -> 금리 3종 순서대로 하나의 긴 표 생성)
+  final_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안", "국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
   
-  # 데이터 누락에 대비한 안전장치 적용 구조
-  existing_interest_cols = ["날짜"]
-  interest_targets = ["국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
-
-  for col in interest_targets:
-      if col in df.columns:
-          existing_interest_cols.append(col)
-      else:
+  # 데이터 누락 방지를 위한 최종 결측치 검증 처리
+  for col in final_cols:
+      if col not in df.columns:
           df[col] = "-"
-          existing_interest_cols.append(col)
 
   st.dataframe(
-    df[existing_interest_cols],
+    df[final_cols],
     use_container_width=True,
     hide_index=True
   )
 else:
   st.error("❌ 데이터를 가져오는 데 실패했습니다. Streamlit Secrets 보관함에 등록된 API 키 설정을 점검해 주세요.")
+
