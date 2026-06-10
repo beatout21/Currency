@@ -9,106 +9,87 @@ from datetime import datetime, timedelta
 API_KEY = st.secrets["ECOS_API_KEY"]
 
 # ==========================================
-# 조회할 항목 (원본 코드 기준)
+# 시장금리 통계표 코드 및 세부 항목 정의
 # ==========================================
+STAT_CODE = "817Y002"
+
 ITEMS = {
-  "USD": "0000001",
-  "EUR": "0000003",
-  "JPY100": "0000002",
-  "CNY": "0000053",
-  "KTB3Y": "010200000",
-  "KTB10Y": "010210000",
-  "CORP_AA3Y": "010300000"
+  "KTB3Y": "010200000",      # 국고채(3년)
+  "KTB10Y": "010210000",     # 국고채(10년)
+  "CORP_AA3Y": "010300000"   # 회사채AA-(3년)
 }
 
 
-def get_ecos_data(item_code):
-
+def get_ecos_interest_data(item_code):
+  """시장금리 통계표 규격에 맞추어 데이터를 호출합니다."""
   end_date = datetime.today()
   start_date = end_date - timedelta(days=30)
 
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # [금리 통계표 코드 및 주소 구조 조건 분기]
-  if item_code in ["010200000", "010210000", "010300000"]:
-    target_stat_code = "817Y002"
-    # 시장금리(817Y002)는 하위 분류가 없음을 나타내는 /? 자리를 명시해야 호출이 정상 처리됩니다.
-    url = (
-      f"https://bok.or.kr"
-      f"{API_KEY}/json/kr/1/1000/"
-      f"{target_stat_code}/D/"
-      f"{start}/{end}/{item_code}/?"
-    )
-  else:
-    target_stat_code = "731Y001"
-    url = (
-      f"https://bok.or.kr"
-      f"{API_KEY}/json/kr/1/1000/"
-      f"{target_stat_code}/D/"
-      f"{start}/{end}/{item_code}"
-    )
+  # 817Y002 통계표는 뒤에 /? 처리를 명확히 해주어야 서버 오류가 발생하지 않습니다.
+  url = (
+    f"https://ecos.bok.or.kr/api/StatisticSearch/"
+    f"{API_KEY}/json/kr/1/1000/"
+    f"{STAT_CODE}/D/"
+    f"{start}/{end}/{item_code}/?"
+  )
 
-  response = requests.get(url)
+  try:
+    response = requests.get(url, timeout=10)
+    if response.status_code != 200:
+      return None
 
-  if response.status_code != 200:
+    data = response.json()
+    if "StatisticSearch" not in data:
+      return None
+
+    rows = data["StatisticSearch"]["row"]
+    df = pd.DataFrame(rows)
+    
+    # 필요한 컬럼 정제 [날짜, 금리값]
+    df = df[["TIME", "DATA_VALUE"]]
+    df.columns = ["DATE", item_code]
+    return df
+  except Exception:
     return None
-
-  data = response.json()
-
-  if "StatisticSearch" not in data:
-    return None
-
-  rows = data["StatisticSearch"]["row"]
-
-  df = pd.DataFrame(rows)
-
-  df = df[["TIME", "DATA_VALUE"]]
-
-  df.columns = ["DATE", item_code]
-
-  return df
 
 
 @st.cache_data
-def build_table():
-
+def build_interest_table():
+  """금리 데이터를 순회 수집하여 하나의 테이블로 완성합니다."""
   merged = None
 
   for name, code in ITEMS.items():
-
-    df = get_ecos_data(code)
+    df = get_ecos_interest_data(code)
 
     if df is None:
       continue
 
+    # 컬럼명을 직관적인 이름으로 임시 변환하여 결합 준비
     df.columns = ["DATE", name]
 
     if merged is None:
       merged = df
     else:
-      merged = merged.merge(
-        df,
-        on="DATE",
-        how="outer"
-      )
+      merged = merged.merge(df, on="DATE", how="outer")
 
-  merged["DATE"] = pd.to_datetime(merged["DATE"])
+  if merged is None:
+    return pd.DataFrame()
 
-  merged = merged.sort_values(
-    "DATE",
-    ascending=False
-  )
-
+  # 날짜형 정렬 및 최근 10영업일 슬라이싱
+  merged["DATE"] = pd.to_datetime(merged["DATE"], format="%Y%m%d")
+  merged = merged.sort_values("DATE", ascending=False)
   merged = merged.head(10)
 
+  # 날짜 표기 가독성 확보 (YYYY-MM-DD)
+  merged["DATE"] = merged["DATE"].dt.strftime("%Y-%m-%d")
+
+  # 최종 한글 컬럼명 변환 매핑
   merged = merged.rename(
     columns={
       "DATE": "날짜",
-      "USD": "원/달러",
-      "EUR": "원/유로",
-      "JPY100": "원/100엔",
-      "CNY": "원/위안",
       "KTB3Y": "국고채(3년)",
       "KTB10Y": "국고채(10년)",
       "CORP_AA3Y": "회사채AA-(3년)"
@@ -119,42 +100,24 @@ def build_table():
 
 
 # ==========================================
-# 화면
+# Streamlit 화면 레이아웃 정의 (그래프 제외)
 # ==========================================
 st.set_page_config(
-  page_title="경제지표 조회",
+  page_title="국내 금리 조회",
   layout="wide"
 )
 
-st.title("환율 및 금리 현황")
+st.title("📊 국내 주요 채권 금리 현황")
+st.caption("한국은행 경제통계시스템(ECOS) API 연동 최근 10 영업일 동향")
 
-# 데이터 병합 테이블 생성
-df = build_table()
+# 테이블 연산 및 화면 렌더링
+df = build_interest_table()
 
-# 1. 환율 표 출력 (원본 구조 그대로 유지)
-st.subheader("💱 환율 현황")
-exchange_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안"]
-st.dataframe(
-  df[exchange_cols],
-  use_container_width=True,
-  hide_index=True
-)
-
-# 2. 금리 표 출력 (안전 장치가 포함된 동적 컬럼 바인딩 구조)
-st.subheader("📊 금리 현황")
-
-existing_interest_cols = ["날짜"]
-interest_targets = ["국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
-
-for col in interest_targets:
-    if col in df.columns:
-        existing_interest_cols.append(col)
-    else:
-        df[col] = "-"
-        existing_interest_cols.append(col)
-
-st.dataframe(
-  df[existing_interest_cols],
-  use_container_width=True,
-  hide_index=True
-)
+if not df.empty:
+  st.dataframe(
+    df,
+    use_container_width=True,
+    hide_index=True
+  )
+else:
+  st.error("❌ 금리 데이터를 호출하는 데 실패했습니다. Streamlit Secrets 보관함에 등록된 API 키가 정상적인지 확인해 주세요.")
