@@ -50,8 +50,6 @@ else:
       f"{start}/{end}/{item_code}"
     )
 
-  response = requests.get(url)
-
   if response.status_code != 200:
     return None
 
