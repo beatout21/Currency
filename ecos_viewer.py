@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 API_KEY = st.secrets["ECOS_API_KEY"]
 
 # ==========================================
-# 조회할 항목
+# 조회할 항목 (국고채 10년의 신규 매핑 코드로 업데이트)
 # ==========================================
 ITEMS = {
   "USD": "0000001",
@@ -17,7 +17,7 @@ ITEMS = {
   "JPY100": "0000002",
   "CNY": "0000053",
   "KTB3Y": "010200000",
-  "KTB10Y": "010210000",
+  "KTB10Y": "010200001",     # 817Y002 통계표용 신규 10년 국채 코드로 수정
   "CORP_AA3Y": "010300000"
 }
 
@@ -30,18 +30,20 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
-  # [금리 코드 변환 로직 적용]
-  # KTB(국고채) 및 CORP(회사채) 항목 코드는 통계표 코드를 '817Y002'로 자동 스위칭합니다.
-  if item_code in ["010200000", "010210000", "010300000"]:
+  # 금리 코드 분류 판별
+  if item_code in ["010200000", "010200001", "010300000"]:
     target_stat_code = "817Y002"
+    # 중요: 금리 통계표는 하위 분류가 없으므로 주소 끝에 /? 자리를 명시해야 함
+    suffix = "/?"
   else:
     target_stat_code = "731Y001"
+    suffix = ""
 
   url = (
     f"https://ecos.bok.or.kr/api/StatisticSearch/"
     f"{API_KEY}/json/kr/1/1000/"
     f"{target_stat_code}/D/"
-    f"{start}/{end}/{item_code}"
+    f"{start}/{end}/{item_code}{suffix}"
   )
 
   response = requests.get(url)
@@ -123,10 +125,10 @@ st.set_page_config(
 
 st.title("환율 및 금리 현황")
 
-# 원본 로직으로 통합 테이블 생성
+# 통합 데이터 연산 수행
 df = build_table()
 
-# 1. 환율 표 출력 (날짜와 환율 관련 컬럼만 필터링)
+# 1. 환율 표 출력 (수정 없음)
 st.subheader("💱 환율 현황")
 exchange_cols = ["날짜", "원/달러", "원/유로", "원/100엔", "원/위안"]
 st.dataframe(
@@ -135,10 +137,9 @@ st.dataframe(
   hide_index=True
 )
 
-# 2. 금리 표 출력 (날짜와 금리 관련 컬럼만 필터링)
+# 2. 금리 표 출력 (안전 장치 포함 구조)
 st.subheader("📊 금리 현황")
 
-# 안전장치 보강: 데이터 누락 시 에러 방지용 검증 로직
 existing_interest_cols = ["날짜"]
 interest_targets = ["국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
 
