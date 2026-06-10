@@ -9,11 +9,6 @@ from datetime import datetime, timedelta
 API_KEY = st.secrets["ECOS_API_KEY"]
 
 # ==========================================
-# 통계표 코드
-# ==========================================
-STAT_CODE = "731Y001"
-
-# ==========================================
 # 조회할 항목
 # ==========================================
 ITEMS = {
@@ -35,10 +30,17 @@ def get_ecos_data(item_code):
   start = start_date.strftime("%Y%m%d")
   end = end_date.strftime("%Y%m%d")
 
+  # [금리 코드 변환 로직 적용]
+  # KTB(국고채) 및 CORP(회사채) 항목 코드는 통계표 코드를 '817Y002'로 자동 스위칭합니다.
+  if item_code in ["010200000", "010210000", "010300000"]:
+    target_stat_code = "817Y002"
+  else:
+    target_stat_code = "731Y001"
+
   url = (
     f"https://ecos.bok.or.kr/api/StatisticSearch/"
     f"{API_KEY}/json/kr/1/1000/"
-    f"{STAT_CODE}/D/"
+    f"{target_stat_code}/D/"
     f"{start}/{end}/{item_code}"
   )
 
@@ -136,7 +138,7 @@ st.dataframe(
 # 2. 금리 표 출력 (날짜와 금리 관련 컬럼만 필터링)
 st.subheader("📊 금리 현황")
 
-# 에러 방지: 데이터프레임에 실제 존재하는 금리 컬럼만 동적으로 추출합니다.
+# 안전장치 보강: 데이터 누락 시 에러 방지용 검증 로직
 existing_interest_cols = ["날짜"]
 interest_targets = ["국고채(3년)", "국고채(10년)", "회사채AA-(3년)"]
 
@@ -144,11 +146,9 @@ for col in interest_targets:
     if col in df.columns:
         existing_interest_cols.append(col)
     else:
-        # 데이터가 아예 안 들어와서 컬럼이 없다면 빈 칸으로 강제 생성합니다.
         df[col] = "-"
         existing_interest_cols.append(col)
 
-# 최종 안전하게 필터링된 컬럼들로만 표를 출력합니다.
 st.dataframe(
   df[existing_interest_cols],
   use_container_width=True,
