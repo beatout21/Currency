@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 =========================
 설정
 =========================
-API_KEY = "여기에_ECOS_API_KEY_입력"
+API_KEY = "ZXBH7LM5BB9NFLDW0DEA"
 한국은행 ECOS 일일환율 통계표
 STAT_CODE = "731Y001"
 환율 항목코드
